@@ -91,6 +91,10 @@
   .panel-row{ display:grid; grid-template-columns:1.3fr 1fr; gap:16px; align-items:start; }
   @media (max-width:980px){ .panel-row{ grid-template-columns:1fr; } }
   .panel{ background:var(--card); border:1px solid var(--line-soft); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .revenue-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+  .rev-stat{ background:var(--paper); border:1px solid var(--line-soft); border-radius:10px; padding:10px 12px; }
+  .rev-label{ font-size:11.5px; color:var(--ink-soft); margin-bottom:4px; }
+  .rev-num{ font-family:'Source Serif 4', Georgia, serif; font-size:19px; font-weight:600; }
   .panel h3{ font-size:15.5px; margin:0 0 4px; }
   .panel .panel-sub{ font-size:12px; color:var(--ink-soft); margin-bottom:14px; }
 
@@ -305,11 +309,13 @@ let state = {
   loaded: false,
   view: 'dashboard', // dashboard | list | detail | team | audit
   activeId: null, detailTab: 'overview',
-  search: '', statusFilter: 'All', ownerFilter: 'All', renewalWindow: null,
+  search: '', statusFilter: 'All', ownerFilter: 'All', usersFilter: '', renewalWindow: null,
+  raWindow: '90', raOwner: 'All', raStatus: 'All', raSearch: '',
   expandedModule: null, expandedMrr: null,
   reportPeriod: 'month', teamPeriod: 'today',
   reportFrom: '', reportTo: '', teamFrom: '', teamTo: '',
   showAddCustomer: false,
+  ticketSearch: '', ticketStatusFilter: 'All', ticketPriorityFilter: 'All', ticketAssigneeFilter: 'All', showAddTicket: false,
 };
 
 function uid(){
@@ -372,13 +378,13 @@ function initials(name){
 function customerToRow(c){
   return { id:c.id, name:c.name, contact:c.contact||null, email:c.email||null, phone:c.phone||null,
     status:c.status, owner:c.owner||null, account_manager:c.accountManager||null, billing_cycle:c.billingCycle, deal_value:Number(c.dealValue)||0,
-    mrr:Number(c.mrr)||0, renewal_date:c.renewalDate||null, last_contact:c.lastContact||null, created_at:c.createdAt||null };
+    mrr:Number(c.mrr)||0, renewal_date:c.renewalDate||null, last_contact:c.lastContact||null, created_at:c.createdAt||null, num_users:Number(c.numUsers)||0 };
 }
 function rowToCustomer(r){
   return { id:r.id, name:r.name, contact:r.contact||'', email:r.email||'', phone:r.phone||'', status:r.status,
     owner:r.owner||'', accountManager:r.account_manager||'', billingCycle:r.billing_cycle, dealValue:Number(r.deal_value)||0, mrr:Number(r.mrr)||0,
-    renewalDate:r.renewal_date||'', lastContact:r.last_contact||'', createdAt:r.created_at||'',
-    notes:[], tickets:[], tasks:[], featureUsage:[], mrrEvents:[] };
+    renewalDate:r.renewal_date||'', lastContact:r.last_contact||'', createdAt:r.created_at||'', numUsers:Number(r.num_users)||0,
+    notes:[], tickets:[], tasks:[], featureUsage:[], mrrEvents:[], subscriptionCycles:[], payments:[], addons:[] };
 }
 function taskToRow(t, customerId){
   return { id:t.id, customer_id:customerId, title:t.title, type:t.type||null, status:t.status, owner:t.owner||null,
@@ -394,16 +400,42 @@ function historyToRow(h, taskId){ if(!h.id) h.id = uid(); return { id:h.id, task
 function rowToHistory(r){ return { id:r.id, ts:r.ts, actor:r.actor||'', action:r.action||'' }; }
 function ticketToRow(t, customerId){
   return { id:t.id, customer_id:customerId, title:t.title, module:t.module||null, priority:t.priority||null,
-    status:t.status, notes:t.notes||null, created_date:t.createdDate||null, resolved_date:t.resolvedDate||null };
+    status:t.status, notes:t.notes||null, assigned_to:t.assignedTo||null, created_date:t.createdDate||null, resolved_date:t.resolvedDate||null };
 }
 function rowToTicket(r){
   return { id:r.id, title:r.title, module:r.module||'', priority:r.priority||'', status:r.status,
-    notes:r.notes||'', createdDate:r.created_date||'', resolvedDate:r.resolved_date||null };
+    notes:r.notes||'', assignedTo:r.assigned_to||'', createdDate:r.created_date||'', resolvedDate:r.resolved_date||null };
+}
+function subCycleToRow(s, customerId){
+  return { id:s.id, customer_id:customerId, num_users:Number(s.numUsers)||0, price_per_user:Number(s.pricePerUser)||0,
+    billing_cycle:s.billingCycle||'Monthly', subscription_amount:Number(s.subscriptionAmount)||0, start_date:s.startDate||null,
+    end_date:s.endDate||null, renewal_date:s.renewalDate||null, status:s.status||'Active', note:s.note||null };
+}
+function rowToSubCycle(r){
+  return { id:r.id, numUsers:Number(r.num_users)||0, pricePerUser:Number(r.price_per_user)||0, billingCycle:r.billing_cycle||'Monthly',
+    subscriptionAmount:Number(r.subscription_amount)||0, startDate:r.start_date||'', endDate:r.end_date||'', renewalDate:r.renewal_date||'',
+    status:r.status||'Active', note:r.note||'' };
+}
+function paymentToRow(p, customerId){
+  return { id:p.id, customer_id:customerId, subscription_cycle_id:p.subscriptionCycleId||null, amount:Number(p.amount)||0,
+    payment_date:p.paymentDate||null, billing_period:p.billingPeriod||null, status:p.status||'Paid', product:p.product||'Base Subscription',
+    invoice_ref:p.invoiceRef||null };
+}
+function rowToPayment(r){
+  return { id:r.id, subscriptionCycleId:r.subscription_cycle_id||'', amount:Number(r.amount)||0, paymentDate:r.payment_date||'',
+    billingPeriod:r.billing_period||'', status:r.status||'Paid', product:r.product||'Base Subscription', invoiceRef:r.invoice_ref||'' };
+}
+function addonToRow(a, customerId){
+  return { id:a.id, customer_id:customerId, name:a.name, monthly_amount:Number(a.monthlyAmount)||0,
+    start_date:a.startDate||null, end_date:a.endDate||null, status:a.status||'Active' };
+}
+function rowToAddon(r){
+  return { id:r.id, name:r.name, monthlyAmount:Number(r.monthly_amount)||0, startDate:r.start_date||'', endDate:r.end_date||'', status:r.status||'Active' };
 }
 function noteToRow(n, customerId){ return { id:n.id, customer_id:customerId, type:n.type||null, date:n.date||null, text:n.text||null }; }
 function rowToNote(r){ return { id:r.id, type:r.type||'', date:r.date||'', text:r.text||'' }; }
-function featureToRow(f, customerId){ return { id:f.id, customer_id:customerId, feature:f.feature||null, start_date:f.startDate||null, note:f.note||null }; }
-function rowToFeature(r){ return { id:r.id, feature:r.feature||'', startDate:r.start_date||'', note:r.note||'' }; }
+function featureToRow(f, customerId){ return { id:f.id, customer_id:customerId, feature:f.feature||null, start_date:f.startDate||null, note:f.note||null, paid:f.paid!==false, paid_start_date:f.paidStartDate||null, status:f.status||'Active' }; }
+function rowToFeature(r){ return { id:r.id, feature:r.feature||'', startDate:r.start_date||'', note:r.note||'', paid:r.paid!==false, paidStartDate:r.paid_start_date||'', status:r.status||'Active' }; }
 function mrrEventToRow(m, customerId){ return { id:m.id, customer_id:customerId, date:m.date||null, type:m.type||null, amount:m.amount||0, note:m.note||null }; }
 function rowToMrrEvent(r){ return { id:r.id, date:r.date||'', type:r.type||'', amount:Number(r.amount)||0, note:r.note||'' }; }
 function rowToAudit(r){ return { id:r.id, ts:r.ts, actor:r.actor||'Unassigned', action:r.action, customerId:r.customer_id, customerName:r.customer_name, detailTab:r.detail_tab||'overview' }; }
@@ -433,6 +465,9 @@ async function doPersistCustomer(c){
     if((c.notes||[]).length) await sbUpsert('notes', c.notes.map(n=>noteToRow(n,c.id)));
     if((c.featureUsage||[]).length) await sbUpsert('feature_usage', c.featureUsage.map(f=>featureToRow(f,c.id)));
     if((c.mrrEvents||[]).length) await sbUpsert('mrr_events', c.mrrEvents.map(m=>mrrEventToRow(m,c.id)));
+    if((c.subscriptionCycles||[]).length) await sbUpsert('subscription_cycles', c.subscriptionCycles.map(s=>subCycleToRow(s,c.id)));
+    if((c.payments||[]).length) await sbUpsert('payments', c.payments.map(p=>paymentToRow(p,c.id)));
+    if((c.addons||[]).length) await sbUpsert('addons', c.addons.map(a=>addonToRow(a,c.id)));
   }catch(e){ console.error(e); showToast('Save failed — changes may not have synced.'); }
   finally{ pendingSaveCount--; }
 }
@@ -440,9 +475,21 @@ async function deleteCustomerRemote(id){
   try{ await sbDelete('customers', { id }); } // cascades to tasks/tickets/notes/feature_usage/mrr_events
   catch(e){ console.error(e); showToast('Delete failed — try again.'); }
 }
+async function deleteTaskRemote(id){
+  try{ await sbDelete('task_history', { task_id: id }); await sbDelete('tasks', { id }); }
+  catch(e){ console.error(e); showToast('Delete failed — try again.'); }
+}
+async function deleteNoteRemote(id){
+  try{ await sbDelete('notes', { id }); }
+  catch(e){ console.error(e); showToast('Delete failed — try again.'); }
+}
+async function deleteTicketRemote(id){
+  try{ await sbDelete('tickets', { id }); }
+  catch(e){ console.error(e); showToast('Delete failed — try again.'); }
+}
 async function loadAll(){
   try{
-    const [customerRows, taskRows, historyRows, ticketRows, noteRows, featureRows, mrrRows, profileRows, auditRows] = await Promise.all([
+    const [customerRows, taskRows, historyRows, ticketRows, noteRows, featureRows, mrrRows, profileRows, auditRows, cycleRows, paymentRows, addonRows] = await Promise.all([
       sbSelect('customers', 'select=*&order=inserted_at.desc'),
       sbSelect('tasks', 'select=*'),
       sbSelect('task_history', 'select=*&order=ts.desc'),
@@ -452,6 +499,9 @@ async function loadAll(){
       sbSelect('mrr_events', 'select=*'),
       sbSelect('profiles', 'select=*&order=name.asc'),
       sbSelect('audit_log', 'select=*&order=ts.desc&limit=500'),
+      sbSelect('subscription_cycles', 'select=*&order=start_date.desc'),
+      sbSelect('payments', 'select=*&order=payment_date.desc'),
+      sbSelect('addons', 'select=*'),
     ]);
     const byCustomer = customerRows.map(rowToCustomer);
     const customerIndex = {}; byCustomer.forEach(c=> customerIndex[c.id]=c);
@@ -465,6 +515,9 @@ async function loadAll(){
     noteRows.forEach(r=>{ const cust = customerIndex[r.customer_id]; if(cust) cust.notes.push(rowToNote(r)); });
     featureRows.forEach(r=>{ const cust = customerIndex[r.customer_id]; if(cust) cust.featureUsage.push(rowToFeature(r)); });
     mrrRows.forEach(r=>{ const cust = customerIndex[r.customer_id]; if(cust) cust.mrrEvents.push(rowToMrrEvent(r)); });
+    cycleRows.forEach(r=>{ const cust = customerIndex[r.customer_id]; if(cust) cust.subscriptionCycles.push(rowToSubCycle(r)); });
+    paymentRows.forEach(r=>{ const cust = customerIndex[r.customer_id]; if(cust) cust.payments.push(rowToPayment(r)); });
+    addonRows.forEach(r=>{ const cust = customerIndex[r.customer_id]; if(cust) cust.addons.push(rowToAddon(r)); });
 
     state.customers = byCustomer;
     state.owners = profileRows.map(r=>r.name);
@@ -707,6 +760,19 @@ function renderLogin(){
 function render(){
   const app = document.getElementById('app');
   if(!state.loaded){ app.innerHTML = '<div style="padding:60px;color:#5B6B62;">Loading…</div>'; return; }
+
+  // Preserve whatever the user is typing in / where their cursor is, since the whole
+  // tree below gets rebuilt on every keystroke. Without this the input loses focus
+  // and the caret jumps to the end after every character.
+  const active = document.activeElement;
+  const isTypable = active && (active.tagName==='INPUT' || active.tagName==='TEXTAREA' || active.tagName==='SELECT');
+  const focusInfo = (isTypable && active.id) ? {
+    id: active.id,
+    selStart: (typeof active.selectionStart==='number') ? active.selectionStart : null,
+    selEnd: (typeof active.selectionEnd==='number') ? active.selectionEnd : null,
+    scrollY: window.scrollY,
+  } : null;
+
   app.innerHTML = '';
   app.appendChild(renderSidebar());
   const main = document.createElement('div');
@@ -714,10 +780,22 @@ function render(){
   if(state.view==='dashboard') main.appendChild(renderDashboard());
   else if(state.view==='list') main.appendChild(renderList());
   else if(state.view==='detail') main.appendChild(renderDetail());
+  else if(state.view==='tickets') main.appendChild(renderTicketsView());
   else if(state.view==='team') main.appendChild(renderTeam());
   else if(state.view==='audit') main.appendChild(renderAudit());
   app.appendChild(main);
   if(state.showAddCustomer) app.appendChild(renderAddCustomerModal());
+
+  if(focusInfo){
+    const el = document.getElementById(focusInfo.id);
+    if(el){
+      el.focus({preventScroll:true});
+      if(focusInfo.selStart!=null && el.setSelectionRange){
+        try{ el.setSelectionRange(focusInfo.selStart, focusInfo.selEnd); }catch(e){}
+      }
+      window.scrollTo(0, focusInfo.scrollY);
+    }
+  }
 }
 
 function renderPeriodSelector(current, onSet, customOpts){
@@ -764,6 +842,7 @@ function renderSidebar(){
     <div class="nav">
       <button class="nav-item ${state.view==='dashboard'?'active':''}" data-nav="dashboard">Overview</button>
       <button class="nav-item ${state.view==='list'||state.view==='detail'?'active':''}" data-nav="list">Customers <span class="nav-count">${s.total}</span></button>
+      <button class="nav-item ${state.view==='tickets'?'active':''}" data-nav="tickets">Tickets <span class="nav-count">${s.openTickets.length}</span></button>
       <button class="nav-item ${state.view==='team'?'active':''}" data-nav="team">Team activity <span class="nav-count">${s.openTasks.length}</span></button>
       <button class="nav-item ${state.view==='audit'?'active':''}" data-nav="audit">Activity log</button>
     </div>
@@ -880,14 +959,65 @@ function renderDashboard(){
           <div class="panel-sub">${s.openTickets.length} open (${s.criticalTickets.length} critical) · click a module</div>
           ${moduleRows}
         </div>
-        <div class="panel">
-          <h3>Renewals ahead</h3>
-          <div class="panel-sub">Click a window to see who's in it</div>
-          <div class="bar-row clickable-bar" data-renewal="30"><div class="bar-label">Next 30 days</div><div style="flex:1"></div><div class="bar-num">${s.r30.length}</div></div>
-          <div class="bar-row clickable-bar" data-renewal="60"><div class="bar-label">31–60 days</div><div style="flex:1"></div><div class="bar-num">${s.r60.length}</div></div>
-          <div class="bar-row clickable-bar" data-renewal="90"><div class="bar-label">61–90 days</div><div style="flex:1"></div><div class="bar-num">${s.r90.length}</div></div>
-        </div>
       </div>
+    </div>
+
+    <div class="panel" id="renewal-analytics">
+      <div class="team-card-head">
+        <div><h3 style="margin-bottom:2px;">Renewal analytics</h3><div class="panel-sub" style="margin-bottom:0;">Every upcoming (and overdue) renewal, with company names, MRR at stake and who owns it.</div></div>
+      </div>
+      <div class="list-toolbar" style="margin-bottom:12px;">
+        <input class="search" id="ra-search" placeholder="Search company…" value="${escapeAttr(state.raSearch)}" style="max-width:220px;">
+        <select class="select" id="ra-window">
+          <option value="30" ${state.raWindow==='30'?'selected':''}>Next 30 days</option>
+          <option value="60" ${state.raWindow==='60'?'selected':''}>Next 60 days</option>
+          <option value="90" ${state.raWindow==='90'?'selected':''}>Next 90 days</option>
+          <option value="180" ${state.raWindow==='180'?'selected':''}>Next 180 days</option>
+          <option value="overdue" ${state.raWindow==='overdue'?'selected':''}>Overdue only</option>
+          <option value="all" ${state.raWindow==='all'?'selected':''}>All with a renewal date</option>
+        </select>
+        <select class="select" id="ra-owner">
+          <option value="All" ${state.raOwner==='All'?'selected':''}>All owners</option>
+          ${(state.customers.some(c=>!c.owner)?['Unassigned',...state.owners]:state.owners).map(o=>{ const v=o==='Unassigned'?'':o; return `<option value="${escapeAttr(v)}" ${state.raOwner===v?'selected':''}>${o}</option>`; }).join('')}
+        </select>
+        <select class="select" id="ra-status">
+          <option ${state.raStatus==='All'?'selected':''}>All</option>
+          ${STATUS_OPTIONS.map(o=>`<option ${state.raStatus===o?'selected':''}>${o}</option>`).join('')}
+        </select>
+      </div>
+      ${(()=>{
+        const q = state.raSearch.trim().toLowerCase();
+        let rows = state.customers.filter(c=>c.renewalDate).map(c=>({c, d:daysUntil(c.renewalDate)})).filter(r=>r.d!==null);
+        if(state.raWindow==='overdue') rows = rows.filter(r=>r.d<0);
+        else if(state.raWindow!=='all') rows = rows.filter(r=>r.d>=0 && r.d<=Number(state.raWindow));
+        if(state.raOwner!=='All') rows = rows.filter(r=>(r.c.owner||'')===state.raOwner);
+        if(state.raStatus!=='All') rows = rows.filter(r=>r.c.status===state.raStatus);
+        if(q) rows = rows.filter(r=>r.c.name.toLowerCase().includes(q));
+        rows.sort((a,b)=>a.d-b.d);
+        const mrrAtStake = rows.reduce((s2,r)=>s2+(Number(r.c.mrr)||0),0);
+        if(rows.length===0) return `<div class="empty" style="padding:20px;">No renewals match these filters.</div>`;
+        return `
+        <div class="page-sub" style="margin:-4px 0 10px;">${rows.length} customer${rows.length===1?'':'s'} · ${money(mrrAtStake)} MRR at stake</div>
+        <table>
+          <thead><tr><th>Company</th><th>Status</th><th>Account manager</th><th>Owner</th><th>MRR</th><th>Renewal date</th><th>Days</th></tr></thead>
+          <tbody>
+            ${rows.map(r=>{
+              const c=r.c, d=r.d;
+              const dLabel = d<0 ? `${-d}d overdue` : (d===0?'Today':`in ${d}d`);
+              const dClass = d<0 ? 'crit' : (d<=30?'warn':'good');
+              return `<tr data-open="${c.id}">
+                <td><div class="cell-name">${escapeHtml(c.name)}</div></td>
+                <td><span class="${pillClass(c.status)}">${c.status}</span></td>
+                <td>${escapeHtml(c.accountManager||'—')}</td>
+                <td>${escapeHtml(c.owner||'—')}</td>
+                <td>${money(c.mrr)}</td>
+                <td>${fmtDate(c.renewalDate)}</td>
+                <td><span class="stat-num ${dClass}" style="font-size:13px;">${dLabel}</span></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
+      })()}
     </div>
 
     <div class="panel">
@@ -925,17 +1055,42 @@ function renderDashboard(){
     state.ownerFilter = r.dataset.ownerRow==='Unassigned' ? '' : r.dataset.ownerRow;
     render();
   }));
+  const raSearchEl = wrap.querySelector('#ra-search');
+  if(raSearchEl) raSearchEl.addEventListener('input', e=>{ state.raSearch=e.target.value; render(); });
+  const raWindowEl = wrap.querySelector('#ra-window');
+  if(raWindowEl) raWindowEl.addEventListener('change', e=>{ state.raWindow=e.target.value; render(); });
+  const raOwnerEl = wrap.querySelector('#ra-owner');
+  if(raOwnerEl) raOwnerEl.addEventListener('change', e=>{ state.raOwner=e.target.value; render(); });
+  const raStatusEl = wrap.querySelector('#ra-status');
+  if(raStatusEl) raStatusEl.addEventListener('change', e=>{ state.raStatus=e.target.value; render(); });
+  wrap.querySelectorAll('#renewal-analytics [data-open]').forEach(r=>r.addEventListener('click', ()=>goToCustomer(r.dataset.open)));
   return wrap;
 }
+
+const USER_BANDS = [
+  { key:'0', label:'0 users', test:n=>n===0 },
+  { key:'1-9', label:'1–9 users', test:n=>n>=1 && n<=9 },
+  { key:'10-49', label:'10–49 users', test:n=>n>=10 && n<=49 },
+  { key:'50-199', label:'50–199 users', test:n=>n>=50 && n<=199 },
+  { key:'200+', label:'200+ users', test:n=>n>=200 },
+];
 
 function renderList(){
   const wrap = document.createElement('div');
   const s = computeStats();
   let renewalLabel = null;
+  const q = state.search.trim().toLowerCase();
   let list = state.customers.filter(c=>{
-    const matchesSearch = !state.search || c.name.toLowerCase().includes(state.search.toLowerCase()) || (c.contact||'').toLowerCase().includes(state.search.toLowerCase());
+    const matchesSearch = !q
+      || c.name.toLowerCase().includes(q)
+      || (c.contact||'').toLowerCase().includes(q)
+      || (c.email||'').toLowerCase().includes(q)
+      || (c.accountManager||'').toLowerCase().includes(q)
+      || (c.owner||'').toLowerCase().includes(q);
     const matchesStatus = state.statusFilter==='All' || c.status===state.statusFilter;
     const matchesOwner = state.ownerFilter==='All' || (c.owner||'')===state.ownerFilter;
+    const band = USER_BANDS.find(b=>b.key===state.usersFilter);
+    const matchesUsers = !band || band.test(Number(c.numUsers)||0);
     let matchesRenewal = true;
     if(state.renewalWindow){
       const d = c.renewalDate ? daysUntil(c.renewalDate) : null;
@@ -943,8 +1098,9 @@ function renderList(){
       matchesRenewal = d!==null && d>=lo && d<=state.renewalWindow;
       renewalLabel = state.renewalWindow===30?'Renewing in the next 30 days' : state.renewalWindow===60?'Renewing in 31–60 days' : 'Renewing in 61–90 days';
     }
-    return matchesSearch && matchesStatus && matchesOwner && matchesRenewal;
+    return matchesSearch && matchesStatus && matchesOwner && matchesUsers && matchesRenewal;
   });
+  const filtersActive = !!q || state.statusFilter!=='All' || state.ownerFilter!=='All' || !!state.usersFilter || !!state.renewalWindow;
 
   wrap.innerHTML = `
     <div class="topbar">
@@ -952,21 +1108,27 @@ function renderList(){
       <button class="btn btn-primary" id="list-add">+ Add customer</button>
     </div>
     <div class="list-toolbar">
-      <input class="search" id="search" placeholder="Search by company or contact…" value="${escapeAttr(state.search)}">
+      <input class="search" id="search" placeholder="Search by company, contact, email, account manager or owner…" value="${escapeAttr(state.search)}">
       <select class="select" id="statusFilter">
         <option ${state.statusFilter==='All'?'selected':''}>All</option>
         ${STATUS_OPTIONS.map(o=>`<option ${state.statusFilter===o?'selected':''}>${o}</option>`).join('')}
       </select>
       <select class="select" id="ownerFilter">
         <option value="All" ${state.ownerFilter==='All'?'selected':''}>All owners</option>
-        ${['Unassigned',...state.owners].map(o=>{ const v = o==='Unassigned'?'':o; return `<option value="${escapeAttr(v)}" ${state.ownerFilter===v?'selected':''}>${o}</option>`; }).join('')}
+        ${(state.customers.some(c=>!c.owner)?['Unassigned',...state.owners]:state.owners).map(o=>{ const v = o==='Unassigned'?'':o; return `<option value="${escapeAttr(v)}" ${state.ownerFilter===v?'selected':''}>${o}</option>`; }).join('')}
+      </select>
+      <select class="select" id="usersFilter">
+        <option value="" ${state.usersFilter===''?'selected':''}>Any no. of users</option>
+        ${USER_BANDS.map(b=>`<option value="${b.key}" ${state.usersFilter===b.key?'selected':''}>${b.label}</option>`).join('')}
       </select>
       ${renewalLabel ? `<span class="filter-chip">${renewalLabel} <button id="clear-renewal">✕</button></span>` : ''}
+      ${filtersActive ? `<button class="btn btn-ghost" id="clear-filters">Clear filters</button>` : ''}
     </div>
+    <div class="page-sub" style="margin:-8px 0 12px;">${list.length} of ${s.total} customers shown</div>
     ${state.customers.length===0 ? `
       <div class="panel empty"><div class="serif">No customers yet</div><div style="margin-bottom:16px;">Add your first customer to start tracking them here.</div></div>` : `
       <table>
-        <thead><tr><th>Company</th><th>Status</th><th>Owner</th><th>MRR</th><th>Renewal</th><th>Last contact</th><th>Open</th></tr></thead>
+        <thead><tr><th>Company</th><th>Status</th><th>Account manager</th><th>Owner</th><th>Users</th><th>MRR</th><th>Renewal</th><th>Last contact</th><th>Open</th></tr></thead>
         <tbody>
           ${list.map(c=>{
             const openT = (c.tickets||[]).filter(t=>t.status==='Open'||t.status==='In Progress').length;
@@ -975,25 +1137,31 @@ function renderList(){
             return `<tr data-open="${c.id}">
               <td><div class="cell-name">${escapeHtml(c.name)}</div><div class="cell-sub">${escapeHtml(c.contact||'')}</div></td>
               <td><span class="${pillClass(c.status)}">${c.status}</span></td>
+              <td>${escapeHtml(c.accountManager||'—')}</td>
               <td>${escapeHtml(c.owner||'—')}</td>
+              <td>${Number(c.numUsers)||0}</td>
               <td>${money(c.mrr)}</td>
               <td>${c.renewalDate? fmtDate(c.renewalDate) + (rd!==null? ' <span class="cell-sub">('+(rd>=0?'in '+rd+'d':(-rd)+'d ago')+')</span>':'') : '—'}</td>
               <td>${c.lastContact? fmtDate(c.lastContact) : '—'}</td>
               <td>${openT||0} tix · ${openTk||0} tasks</td>
             </tr>`;
-          }).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--ink-soft);padding:26px;">No customers match your filters.</td></tr>`}
+          }).join('') || `<tr><td colspan="9" style="text-align:center;color:var(--ink-soft);padding:26px;">No customers match your filters.</td></tr>`}
         </tbody>
       </table>`}
   `;
   wrap.querySelector('#list-add').addEventListener('click', ()=>{ state.showAddCustomer=true; render(); });
   const searchEl = wrap.querySelector('#search');
-  if(searchEl) searchEl.addEventListener('input', e=>{ state.search=e.target.value; render(); wrap.querySelector('#search').focus(); wrap.querySelector('#search').setSelectionRange(state.search.length,state.search.length); });
+  if(searchEl) searchEl.addEventListener('input', e=>{ state.search=e.target.value; render(); });
   const filterEl = wrap.querySelector('#statusFilter');
   if(filterEl) filterEl.addEventListener('change', e=>{ state.statusFilter=e.target.value; render(); });
   const ownerFilterEl = wrap.querySelector('#ownerFilter');
   if(ownerFilterEl) ownerFilterEl.addEventListener('change', e=>{ state.ownerFilter=e.target.value; render(); });
+  const usersFilterEl = wrap.querySelector('#usersFilter');
+  if(usersFilterEl) usersFilterEl.addEventListener('change', e=>{ state.usersFilter=e.target.value; render(); });
   const clearRenewal = wrap.querySelector('#clear-renewal');
   if(clearRenewal) clearRenewal.addEventListener('click', ()=>{ state.renewalWindow=null; render(); });
+  const clearFilters = wrap.querySelector('#clear-filters');
+  if(clearFilters) clearFilters.addEventListener('click', ()=>{ state.search=''; state.statusFilter='All'; state.ownerFilter='All'; state.usersFilter=''; state.renewalWindow=null; render(); });
   wrap.querySelectorAll('[data-open]').forEach(r=>r.addEventListener('click', ()=>goToCustomer(r.dataset.open)));
   return wrap;
 }
@@ -1018,6 +1186,7 @@ function renderDetail(){
         <span class="${pillClass(c.status)}">${c.status}</span>
         <span>${escapeHtml(c.contact||'No contact set')}</span>
         <span>${money(c.mrr)}/mo</span>
+        <span>${Number(c.numUsers)||0} users</span>
         <span>Owner: ${escapeHtml(c.owner||'Unassigned')}</span>
         <span>Renews ${c.renewalDate? fmtDate(c.renewalDate) : '—'}</span>
         <span>Started ${c.createdAt? fmtDate(c.createdAt) : '—'}</span>
@@ -1038,7 +1207,7 @@ function renderDetail(){
 
   const tabs = document.createElement('div');
   tabs.className='tabs';
-  const tabLabels = { overview:'Overview', tasks:'Tasks & work', usage:'Product usage', timeline:'Timeline & notes', tickets:'Support tickets' };
+  const tabLabels = { overview:'Overview', billing:'Subscription & Revenue', tasks:'Tasks & work', usage:'Product usage', timeline:'Timeline & notes', tickets:'Support tickets' };
   Object.keys(tabLabels).forEach(t=>{
     const b = document.createElement('button');
     b.className = 'tab'+(state.detailTab===t?' active':'');
@@ -1049,6 +1218,7 @@ function renderDetail(){
   wrap.appendChild(tabs);
 
   if(state.detailTab==='overview') wrap.appendChild(renderOverviewTab(c));
+  if(state.detailTab==='billing') wrap.appendChild(renderBillingTab(c));
   if(state.detailTab==='tasks') wrap.appendChild(renderTasksTab(c));
   if(state.detailTab==='usage') wrap.appendChild(renderUsageTab(c));
   if(state.detailTab==='timeline') wrap.appendChild(renderTimelineTab(c));
@@ -1089,6 +1259,9 @@ function renderOverviewTab(c){
   const dealField = document.createElement('div'); dealField.className='field';
   dealField.innerHTML = `<label>Deal value per cycle ($)</label><input data-key="dealValue" type="number" value="${escapeAttr(c.dealValue==null?'':c.dealValue)}">`;
   grid.appendChild(dealField);
+  const usersField = document.createElement('div'); usersField.className='field';
+  usersField.innerHTML = `<label>Number of users (current)</label><input data-key="numUsers" type="number" value="${escapeAttr(c.numUsers==null?'':c.numUsers)}">`;
+  grid.appendChild(usersField);
   const mrrField = document.createElement('div'); mrrField.className='field';
   mrrField.innerHTML = `<label>MRR (auto-calculated)</label><div class="readonly">${money(computeMrrFor(c))}/mo</div>`;
   grid.appendChild(mrrField);
@@ -1132,6 +1305,278 @@ function renderOverviewTab(c){
     wrap.appendChild(mp);
   }
   return wrap;
+}
+
+function renderBillingTab(c){
+  const wrap = document.createElement('div');
+  const cycles = [...(c.subscriptionCycles||[])].sort((a,b)=> (b.startDate||'').localeCompare(a.startDate||''));
+  const payments = [...(c.payments||[])].sort((a,b)=> (b.paymentDate||'').localeCompare(a.paymentDate||''));
+  const addons = [...(c.addons||[])];
+  const currentCycle = cycles[0] || null;
+  const prevCycle = cycles[1] || null;
+
+  const activeAddons = addons.filter(a=>a.status==='Active');
+  const addonMonthly = activeAddons.reduce((s,a)=>s+(Number(a.monthlyAmount)||0),0);
+  const totalMonthly = (Number(c.mrr)||0) + addonMonthly;
+
+  const currentContractValue = currentCycle ? currentCycle.subscriptionAmount : (c.dealValue||0);
+  const collectedForCurrentCycle = payments.filter(p=> currentCycle ? p.subscriptionCycleId===currentCycle.id : true)
+    .filter(p=>p.status==='Paid'||p.status==='Partial').reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const outstanding = Math.max(0, currentContractValue - collectedForCurrentCycle);
+  const lifetimeRevenue = payments.filter(p=>p.status==='Paid'||p.status==='Partial').reduce((s,p)=>s+(Number(p.amount)||0),0);
+
+  const summary = document.createElement('div');
+  summary.className='panel';
+  summary.innerHTML = `
+    <h3 style="margin-bottom:14px;">Revenue summary</h3>
+    <div class="revenue-grid">
+      <div class="rev-stat"><div class="rev-label">Current contract value</div><div class="rev-num">${money(currentContractValue)}</div></div>
+      <div class="rev-stat"><div class="rev-label">Number of users</div><div class="rev-num">${Number(c.numUsers)||0}</div></div>
+      <div class="rev-stat"><div class="rev-label">Base MRR</div><div class="rev-num">${money(c.mrr)}</div></div>
+      <div class="rev-stat"><div class="rev-label">Add-on revenue /mo</div><div class="rev-num">${money(addonMonthly)}</div></div>
+      <div class="rev-stat"><div class="rev-label">Total monthly revenue</div><div class="rev-num">${money(totalMonthly)}</div></div>
+      <div class="rev-stat"><div class="rev-label">Collected (current cycle)</div><div class="rev-num">${money(collectedForCurrentCycle)}</div></div>
+      <div class="rev-stat"><div class="rev-label">Outstanding (current cycle)</div><div class="rev-num" style="color:${outstanding>0?'var(--red)':'inherit'}">${money(outstanding)}</div></div>
+      <div class="rev-stat"><div class="rev-label">Lifetime revenue collected</div><div class="rev-num">${money(lifetimeRevenue)}</div></div>
+    </div>
+    ${prevCycle && currentCycle ? `<div class="panel-sub" style="margin-top:12px;">Last renewal on ${fmtDate(currentCycle.startDate)}: ${prevCycle.numUsers} → ${currentCycle.numUsers} users (${currentCycle.numUsers-prevCycle.numUsers>=0?'+':''}${currentCycle.numUsers-prevCycle.numUsers}), ${money(prevCycle.subscriptionAmount)} → ${money(currentCycle.subscriptionAmount)} (${currentCycle.subscriptionAmount-prevCycle.subscriptionAmount>=0?'+':''}${money(currentCycle.subscriptionAmount-prevCycle.subscriptionAmount)})</div>` : ''}
+  `;
+  wrap.appendChild(summary);
+
+  const cyclesPanel = document.createElement('div');
+  cyclesPanel.className='panel';
+  cyclesPanel.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;">Subscription cycles (renewal history)</h3>
+      <button class="btn btn-primary btn-sm" id="cyc-add-toggle">+ New cycle / renewal</button>
+    </div>
+    <div id="cyc-form-wrap"></div>
+    <div id="cyc-list" style="overflow-x:auto;"></div>`;
+  wrap.appendChild(cyclesPanel);
+  const cycFormWrap = cyclesPanel.querySelector('#cyc-form-wrap');
+  cyclesPanel.querySelector('#cyc-add-toggle').addEventListener('click', ()=>{
+    cycFormWrap.innerHTML='';
+    cycFormWrap.appendChild(renderCycleForm(c, currentCycle));
+  });
+  const cycList = cyclesPanel.querySelector('#cyc-list');
+  if(cycles.length===0){
+    cycList.innerHTML = `<div class="empty"><div class="serif">No subscription cycles recorded</div>Log the first cycle above — this never overwrites, so every renewal stays visible.</div>`;
+  } else {
+    cycList.innerHTML = `<table><thead><tr><th>Start</th><th>End</th><th>Users</th><th>$/user</th><th>Billing</th><th>Amount</th><th>Renewal</th><th>Status</th><th>Note</th></tr></thead><tbody>${
+      cycles.map((s,i)=>`<tr${i===0?' style="font-weight:600;"':''}>
+        <td>${fmtDate(s.startDate)}</td><td>${s.endDate?fmtDate(s.endDate):'—'}</td><td>${s.numUsers}</td><td>${money(s.pricePerUser)}</td>
+        <td>${escapeHtml(s.billingCycle)}</td><td>${money(s.subscriptionAmount)}</td><td>${s.renewalDate?fmtDate(s.renewalDate):'—'}</td>
+        <td><span class="${pillClass(s.status)}">${s.status}</span></td><td>${escapeHtml(s.note||'')}</td>
+      </tr>`).join('')
+    }</tbody></table>`;
+  }
+
+  const payPanel = document.createElement('div');
+  payPanel.className='panel';
+  payPanel.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;">Payment history</h3>
+      <button class="btn btn-primary btn-sm" id="pay-add-toggle">+ Log payment</button>
+    </div>
+    <div id="pay-form-wrap"></div>
+    <div id="pay-list" style="overflow-x:auto;"></div>`;
+  wrap.appendChild(payPanel);
+  const payFormWrap = payPanel.querySelector('#pay-form-wrap');
+  payPanel.querySelector('#pay-add-toggle').addEventListener('click', ()=>{
+    payFormWrap.innerHTML='';
+    payFormWrap.appendChild(renderPaymentForm(c, cycles));
+  });
+  const payList = payPanel.querySelector('#pay-list');
+  if(payments.length===0){
+    payList.innerHTML = `<div class="empty"><div class="serif">No payments recorded</div>Log a payment above when money actually comes in — this is separate from contract value.</div>`;
+  } else {
+    payList.innerHTML = `<table><thead><tr><th>Date</th><th>Amount</th><th>Product</th><th>Billing period</th><th>Status</th><th>Invoice ref</th><th>Cycle</th></tr></thead><tbody>${
+      payments.map(p=>{
+        const cyc = cycles.find(s=>s.id===p.subscriptionCycleId);
+        return `<tr><td>${p.paymentDate?fmtDate(p.paymentDate):'—'}</td><td>${money(p.amount)}</td><td>${escapeHtml(p.product)}</td>
+        <td>${escapeHtml(p.billingPeriod||'—')}</td><td><span class="${pillClass(p.status)}">${p.status}</span></td>
+        <td>${escapeHtml(p.invoiceRef||'—')}</td><td>${cyc? fmtDate(cyc.startDate)+' cycle':'—'}</td></tr>`;
+      }).join('')
+    }</tbody></table>`;
+  }
+
+  const addonPanel = document.createElement('div');
+  addonPanel.className='panel';
+  addonPanel.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;">Add-ons</h3>
+      <button class="btn btn-primary btn-sm" id="addon-add-toggle">+ Add add-on</button>
+    </div>
+    <div id="addon-form-wrap"></div>
+    <div id="addon-list"></div>`;
+  wrap.appendChild(addonPanel);
+  const addonFormWrap = addonPanel.querySelector('#addon-form-wrap');
+  addonPanel.querySelector('#addon-add-toggle').addEventListener('click', ()=>{
+    addonFormWrap.innerHTML='';
+    addonFormWrap.appendChild(renderAddonForm(c));
+  });
+  const addonList = addonPanel.querySelector('#addon-list');
+  if(addons.length===0){
+    addonList.innerHTML = `<div class="empty"><div class="serif">No add-ons</div>Add one above — AI Voice, Mass Email, etc. — tracked separately from the base subscription.</div>`;
+  } else {
+    addons.forEach(a=>{
+      const row = document.createElement('div');
+      row.className='ticket-card';
+      row.innerHTML = `<div class="ticket-top">
+        <div><div class="ticket-title" data-view-name>${escapeHtml(a.name)}</div>
+        <div class="ticket-meta" data-view-meta>${money(a.monthlyAmount)}/mo · from ${a.startDate?fmtDate(a.startDate):'—'}${a.endDate?' to '+fmtDate(a.endDate):''}</div></div>
+        <div class="ticket-pills"><span class="${pillClass(a.status)}">${a.status}</span></div>
+      </div>
+      <div class="add-form-row" style="margin-top:10px;margin-bottom:0;">
+        <select data-addon-status><option ${a.status==='Active'?'selected':''}>Active</option><option ${a.status==='Paused'?'selected':''}>Paused</option><option ${a.status==='Cancelled'?'selected':''}>Cancelled</option></select>
+        <button class="btn btn-ghost btn-sm" data-edit-toggle>Edit</button>
+        <button class="btn btn-ghost btn-sm" data-delete style="color:var(--red);">Delete</button>
+      </div>
+      <div data-edit-body style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft);">
+        <div class="add-form-row">
+          <input data-edit-name value="${escapeAttr(a.name)}" placeholder="Add-on name" style="flex:2;min-width:160px;">
+          <input data-edit-amount type="number" value="${a.monthlyAmount||0}" placeholder="$/mo" style="max-width:120px;">
+          <input data-edit-start type="date" value="${a.startDate||''}">
+        </div>
+        <div class="add-form-row" style="margin-top:8px;margin-bottom:0;">
+          <button class="btn btn-primary btn-sm" data-edit-save>Save changes</button>
+          <button class="btn btn-sm" data-edit-cancel>Cancel</button>
+        </div>
+      </div>`;
+      row.querySelector('[data-addon-status]').addEventListener('change', e=>{
+        a.status = e.target.value;
+        if(a.status!=='Active' && !a.endDate) a.endDate = todayISO();
+        logAudit(`${state.actor||'Someone'} set add-on "${a.name}" to ${a.status} for ${c.name}`, c.id, c.name, 'billing');
+        persistCustomer(c); render();
+      });
+      row.querySelector('[data-edit-toggle]').addEventListener('click', ()=>{
+        const body = row.querySelector('[data-edit-body]');
+        body.style.display = body.style.display==='none' ? 'block' : 'none';
+      });
+      row.querySelector('[data-edit-cancel]').addEventListener('click', ()=>{
+        row.querySelector('[data-edit-body]').style.display = 'none';
+      });
+      row.querySelector('[data-edit-save]').addEventListener('click', ()=>{
+        const newName = row.querySelector('[data-edit-name]').value.trim();
+        if(!newName){ showToast('Add-on name is required'); return; }
+        a.name = newName;
+        a.monthlyAmount = Number(row.querySelector('[data-edit-amount]').value)||0;
+        a.startDate = row.querySelector('[data-edit-start]').value||a.startDate;
+        logAudit(`${state.actor||'Someone'} edited add-on "${newName}" for ${c.name}`, c.id, c.name, 'billing');
+        persistCustomer(c); render(); showToast('Add-on updated');
+      });
+      row.querySelector('[data-delete]').addEventListener('click', ()=>{
+        if(!confirm(`Remove add-on "${a.name}"? This can't be undone.`)) return;
+        c.addons = (c.addons||[]).filter(x=>x.id!==a.id);
+        logAudit(`${state.actor||'Someone'} removed add-on "${a.name}" for ${c.name}`, c.id, c.name, 'billing');
+        sbDelete('addons', { id: a.id }).catch(e=>{ console.error(e); showToast('Delete failed — try again.'); });
+        render(); showToast('Add-on removed');
+      });
+      addonList.appendChild(row);
+    });
+  }
+
+  return wrap;
+}
+
+function renderCycleForm(c, currentCycle){
+  const form = document.createElement('div');
+  form.className='add-form';
+  const defUsers = currentCycle ? currentCycle.numUsers : (c.numUsers||0);
+  const defAmount = currentCycle ? currentCycle.subscriptionAmount : (c.dealValue||0);
+  const defCycle = currentCycle ? currentCycle.billingCycle : (c.billingCycle||'Monthly');
+  form.innerHTML = `
+    <div class="add-form-row">
+      <input id="cyc-users" type="number" placeholder="Number of users" value="${defUsers}">
+      <input id="cyc-price" type="number" placeholder="Price per user" value="${defUsers>0?Math.round((defAmount/defUsers)*100)/100:0}">
+      <select id="cyc-billing">${Object.keys(BILLING_CYCLES).map(o=>`<option ${o===defCycle?'selected':''}>${o}</option>`).join('')}</select>
+      <input id="cyc-amount" type="number" placeholder="Subscription / cycle amount" value="${defAmount}">
+    </div>
+    <div class="add-form-row">
+      <input id="cyc-start" type="date" value="${todayISO()}">
+      <input id="cyc-end" type="date">
+      <input id="cyc-renewal" type="date" value="${c.renewalDate||''}">
+      <select id="cyc-status"><option selected>Active</option><option>Upcoming</option><option>Expired</option></select>
+    </div>
+    <textarea id="cyc-note" placeholder="Note (e.g. expansion, downgrade, reason)"></textarea>
+    <div class="add-form-row" style="margin-top:8px;margin-bottom:0;">
+      <button class="btn btn-primary" id="cyc-save">Save cycle</button>
+    </div>
+  `;
+  form.querySelector('#cyc-save').addEventListener('click', ()=>{
+    const numUsers = Number(form.querySelector('#cyc-users').value)||0;
+    const pricePerUser = Number(form.querySelector('#cyc-price').value)||0;
+    const billingCycle = form.querySelector('#cyc-billing').value;
+    const subscriptionAmount = Number(form.querySelector('#cyc-amount').value)||0;
+    const startDate = form.querySelector('#cyc-start').value||todayISO();
+    const endDate = form.querySelector('#cyc-end').value||'';
+    const renewalDate = form.querySelector('#cyc-renewal').value||'';
+    const status = form.querySelector('#cyc-status').value;
+    if(subscriptionAmount<=0){ showToast('Subscription amount is required'); return; }
+    c.subscriptionCycles = c.subscriptionCycles || [];
+    c.subscriptionCycles.unshift({ id:uid(), numUsers, pricePerUser, billingCycle, subscriptionAmount, startDate, endDate, renewalDate, status, note: form.querySelector('#cyc-note').value.trim() });
+    c.numUsers = numUsers; c.dealValue = subscriptionAmount; c.billingCycle = billingCycle; c.renewalDate = renewalDate;
+    recalcMrr(c);
+    logAudit(`${state.actor||'Someone'} logged a new subscription cycle (${numUsers} users, ${money(subscriptionAmount)}) for ${c.name}`, c.id, c.name, 'billing');
+    persistCustomer(c); render(); showToast('Cycle saved');
+  });
+  return form;
+}
+
+function renderPaymentForm(c, cycles){
+  const form = document.createElement('div');
+  form.className='add-form';
+  form.innerHTML = `
+    <div class="add-form-row">
+      <input id="pay-amount" type="number" placeholder="Amount">
+      <input id="pay-date" type="date" value="${todayISO()}">
+      <input id="pay-period" placeholder="Billing period (e.g. Jan–Jun 2026)">
+    </div>
+    <div class="add-form-row">
+      <input id="pay-product" placeholder="Product (e.g. Base Subscription, AI Voice)" value="Base Subscription">
+      <select id="pay-status"><option selected>Paid</option><option>Partial</option><option>Refunded</option><option>Failed</option></select>
+      <input id="pay-invoice" placeholder="Invoice / reference #">
+      <select id="pay-cycle"><option value="">No linked cycle</option>${cycles.map(s=>`<option value="${s.id}">${fmtDate(s.startDate)} cycle — ${money(s.subscriptionAmount)}</option>`).join('')}</select>
+    </div>
+    <div class="add-form-row" style="margin-top:8px;margin-bottom:0;">
+      <button class="btn btn-primary" id="pay-save">Save payment</button>
+    </div>
+  `;
+  form.querySelector('#pay-save').addEventListener('click', ()=>{
+    const amount = Number(form.querySelector('#pay-amount').value)||0;
+    if(amount<=0){ showToast('Payment amount is required'); return; }
+    c.payments = c.payments || [];
+    c.payments.unshift({
+      id: uid(), amount, paymentDate: form.querySelector('#pay-date').value||todayISO(),
+      billingPeriod: form.querySelector('#pay-period').value.trim(), product: form.querySelector('#pay-product').value.trim()||'Base Subscription',
+      status: form.querySelector('#pay-status').value, invoiceRef: form.querySelector('#pay-invoice').value.trim(),
+      subscriptionCycleId: form.querySelector('#pay-cycle').value||'',
+    });
+    logAudit(`${state.actor||'Someone'} logged a payment of ${money(amount)} for ${c.name}`, c.id, c.name, 'billing');
+    persistCustomer(c); render(); showToast('Payment logged');
+  });
+  return form;
+}
+
+function renderAddonForm(c){
+  const form = document.createElement('div');
+  form.className='add-form';
+  form.innerHTML = `
+    <div class="add-form-row">
+      <input id="addon-name" placeholder="Add-on name (e.g. AI Voice)">
+      <input id="addon-amount" type="number" placeholder="Monthly amount ($)">
+      <input id="addon-start" type="date" value="${todayISO()}">
+    </div>
+    <div class="add-form-row" style="margin-top:8px;margin-bottom:0;">
+      <button class="btn btn-primary" id="addon-save">Add add-on</button>
+    </div>
+  `;
+  form.querySelector('#addon-save').addEventListener('click', ()=>{
+    const name = form.querySelector('#addon-name').value.trim();
+    if(!name){ showToast('Add-on name is required'); return; }
+    c.addons = c.addons || [];
+    c.addons.unshift({ id:uid(), name, monthlyAmount: Number(form.querySelector('#addon-amount').value)||0, startDate: form.querySelector('#addon-start').value||todayISO(), endDate:'', status:'Active' });
+    logAudit(`${state.actor||'Someone'} added add-on "${name}" for ${c.name}`, c.id, c.name, 'billing');
+    persistCustomer(c); render(); showToast('Add-on added');
+  });
+  return form;
 }
 
 function renderTasksTab(c){
@@ -1201,6 +1646,7 @@ function renderTasksTab(c){
           <div class="task-pills">
             <span class="${pillClass(t.status)}">${t.status}</span>
             <button class="btn btn-ghost btn-sm" data-edit-toggle>Edit</button>
+            <button class="btn btn-ghost btn-sm" data-delete style="color:var(--red);">Delete</button>
           </div>
         </div>
         <div class="task-controls">
@@ -1286,6 +1732,13 @@ function renderTasksTab(c){
           body.innerHTML = (t.history||[]).map(h=>`<div>${fmtDateTime(h.ts)} — <strong>${escapeHtml(h.actor)}</strong> ${escapeHtml(h.action)}</div>`).join('') || 'No history yet.';
         }
       });
+      card.querySelector('[data-delete]').addEventListener('click', ()=>{
+        if(!confirm(`Delete task "${t.title}"? This can't be undone.`)) return;
+        c.tasks = (c.tasks||[]).filter(x=>x.id!==t.id);
+        logAudit(`${state.actor||'Someone'} deleted task "${t.title}" for ${c.name}`, c.id, c.name, 'tasks');
+        deleteTaskRemote(t.id);
+        render(); showToast('Task deleted');
+      });
       listPanel.appendChild(card);
     });
   }
@@ -1301,6 +1754,11 @@ function renderUsageTab(c){
     <div class="add-form-row">
       <select id="fu-feature">${FEATURES.map(f=>`<option>${f}</option>`).join('')}</select>
       <input id="fu-date" type="date" value="${todayISO()}">
+      <select id="fu-status"><option>Trial</option><option selected>Active</option><option>Paused</option><option>Cancelled</option></select>
+    </div>
+    <div class="add-form-row">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-soft);"><input type="checkbox" id="fu-paid" checked style="width:auto;"> Paid feature</label>
+      <input id="fu-paid-date" type="date" value="${todayISO()}" title="Paid since">
     </div>
     <input id="fu-note" type="text" placeholder="Optional note (e.g. plan tier, usage volume)" style="width:100%;">
     <div class="add-form-row" style="margin-top:8px;margin-bottom:0;">
@@ -1310,8 +1768,11 @@ function renderUsageTab(c){
   wrap.appendChild(form);
   form.querySelector('#fu-add').addEventListener('click', ()=>{
     const feature = form.querySelector('#fu-feature').value;
+    const paid = form.querySelector('#fu-paid').checked;
     c.featureUsage = c.featureUsage || [];
-    c.featureUsage.unshift({ id:uid(), feature, startDate: form.querySelector('#fu-date').value||todayISO(), note: form.querySelector('#fu-note').value.trim() });
+    c.featureUsage.unshift({ id:uid(), feature, startDate: form.querySelector('#fu-date').value||todayISO(),
+      note: form.querySelector('#fu-note').value.trim(), status: form.querySelector('#fu-status').value,
+      paid, paidStartDate: paid ? (form.querySelector('#fu-paid-date').value||todayISO()) : '' });
     logAudit(`Logged ${feature} usage start for ${c.name}`, c.id, c.name, 'usage');
     persistCustomer(c); render(); showToast('Feature usage logged');
   });
@@ -1323,9 +1784,61 @@ function renderUsageTab(c){
     panel.innerHTML = `<div class="empty"><div class="serif">No feature usage logged</div>Record when this customer started using each ExcelHire feature, above.</div>`;
   } else {
     panel.innerHTML = `<h3 style="margin-bottom:4px;">What they use, and since when</h3>
-      <div class="panel-sub">Earliest adoption first — this is their product journey with ExcelHire.</div>
-      <ul class="timeline">${usage.map(u=>`
-        <li><div class="tl-date">${fmtDate(u.startDate)}</div><div class="tl-body"><div class="tl-text">${escapeHtml(c.name)} started using <strong>${escapeHtml(u.feature)}</strong> on ${fmtDate(u.startDate)}.${u.note? ' '+escapeHtml(u.note):''}</div></div></li>`).join('')}</ul>`;
+      <div class="panel-sub" style="margin-bottom:10px;">Earliest adoption first — this is their product journey with ExcelHire.</div>`;
+    usage.forEach(u=>{
+      const row = document.createElement('div');
+      row.className='ticket-card';
+      row.innerHTML = `<div class="ticket-top">
+        <div><div class="ticket-title" data-view-text>${escapeHtml(c.name)} started using <strong>${escapeHtml(u.feature)}</strong> on ${fmtDate(u.startDate)}.${u.note? ' '+escapeHtml(u.note):''}</div>
+        <div class="ticket-meta" data-view-meta>${u.paid? 'Paid'+(u.paidStartDate? ' since '+fmtDate(u.paidStartDate):'') : 'Free / trial'}</div></div>
+        <div class="ticket-pills"><span class="${pillClass(u.status||'Active')}">${u.status||'Active'}</span></div>
+      </div>
+      <div class="add-form-row" style="margin-top:10px;margin-bottom:0;">
+        <button class="btn btn-ghost btn-sm" data-edit-toggle>Edit</button>
+        <button class="btn btn-ghost btn-sm" data-delete style="color:var(--red);">Delete</button>
+      </div>
+      <div data-edit-body style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft);">
+        <div class="add-form-row">
+          <select data-edit-feature>${FEATURES.map(f=>`<option ${u.feature===f?'selected':''}>${f}</option>`).join('')}</select>
+          <input data-edit-date type="date" value="${u.startDate||''}">
+          <select data-edit-status>${['Trial','Active','Paused','Cancelled'].map(s=>`<option ${((u.status||'Active')===s)?'selected':''}>${s}</option>`).join('')}</select>
+        </div>
+        <div class="add-form-row">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-soft);"><input type="checkbox" data-edit-paid ${u.paid!==false?'checked':''} style="width:auto;"> Paid feature</label>
+          <input data-edit-paid-date type="date" value="${u.paidStartDate||''}">
+        </div>
+        <input data-edit-note type="text" value="${escapeAttr(u.note||'')}" placeholder="Note" style="width:100%;">
+        <div class="add-form-row" style="margin-top:8px;margin-bottom:0;">
+          <button class="btn btn-primary btn-sm" data-edit-save>Save changes</button>
+          <button class="btn btn-sm" data-edit-cancel>Cancel</button>
+        </div>
+      </div>`;
+      row.querySelector('[data-edit-toggle]').addEventListener('click', ()=>{
+        const body = row.querySelector('[data-edit-body]');
+        body.style.display = body.style.display==='none' ? 'block' : 'none';
+      });
+      row.querySelector('[data-edit-cancel]').addEventListener('click', ()=>{
+        row.querySelector('[data-edit-body]').style.display = 'none';
+      });
+      row.querySelector('[data-edit-save]').addEventListener('click', ()=>{
+        u.feature = row.querySelector('[data-edit-feature]').value;
+        u.startDate = row.querySelector('[data-edit-date]').value||u.startDate;
+        u.status = row.querySelector('[data-edit-status]').value;
+        u.paid = row.querySelector('[data-edit-paid]').checked;
+        u.paidStartDate = u.paid ? (row.querySelector('[data-edit-paid-date]').value||u.startDate) : '';
+        u.note = row.querySelector('[data-edit-note]').value.trim();
+        logAudit(`${state.actor||'Someone'} edited feature usage "${u.feature}" for ${c.name}`, c.id, c.name, 'usage');
+        persistCustomer(c); render(); showToast('Feature usage updated');
+      });
+      row.querySelector('[data-delete]').addEventListener('click', ()=>{
+        if(!confirm(`Delete "${u.feature}" usage entry? This can't be undone.`)) return;
+        c.featureUsage = (c.featureUsage||[]).filter(x=>x.id!==u.id);
+        logAudit(`${state.actor||'Someone'} deleted feature usage "${u.feature}" for ${c.name}`, c.id, c.name, 'usage');
+        sbDelete('feature_usage', { id: u.id }).catch(e=>{ console.error(e); showToast('Delete failed — try again.'); });
+        render(); showToast('Feature usage deleted');
+      });
+      panel.appendChild(row);
+    });
   }
   wrap.appendChild(panel);
   return wrap;
@@ -1362,11 +1875,136 @@ function renderTimelineTab(c){
   if(notes.length===0){
     listPanel.innerHTML = `<div class="empty"><div class="serif">No notes yet</div>Log the first call, email, or update above.</div>`;
   } else {
-    listPanel.innerHTML = `<ul class="timeline">${notes.map(n=>`
-      <li><div class="tl-date">${fmtDate(n.date)}</div><div class="tl-body"><div class="tl-type">${escapeHtml(n.type)}</div><div class="tl-text">${escapeHtml(n.text)}</div></div></li>`).join('')}</ul>`;
+    const ul = document.createElement('ul');
+    ul.className = 'timeline';
+    notes.forEach(n=>{
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <div class="tl-date">${fmtDate(n.date)}</div>
+        <div class="tl-body" style="flex:1;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+            <div class="tl-type">${escapeHtml(n.type)}</div>
+            <div style="display:flex;gap:4px;flex-shrink:0;">
+              <button class="btn btn-ghost btn-sm" data-note-edit-toggle>Edit</button>
+              <button class="btn btn-ghost btn-sm" data-note-delete style="color:var(--red);">Delete</button>
+            </div>
+          </div>
+          <div class="tl-text" data-note-view>${escapeHtml(n.text)}</div>
+          <div data-note-edit-body style="display:none;margin-top:8px;">
+            <div class="add-form-row">
+              <select data-note-edit-type>${NOTE_TYPES.map(t=>`<option ${n.type===t?'selected':''}>${t}</option>`).join('')}</select>
+              <input data-note-edit-date type="date" value="${n.date||''}">
+            </div>
+            <textarea data-note-edit-text placeholder="What happened, what was discussed, next steps…">${escapeHtml(n.text||'')}</textarea>
+            <div class="add-form-row" style="margin-top:8px;margin-bottom:0;">
+              <button class="btn btn-primary btn-sm" data-note-edit-save>Save changes</button>
+              <button class="btn btn-sm" data-note-edit-cancel>Cancel</button>
+            </div>
+          </div>
+        </div>`;
+      li.querySelector('[data-note-edit-toggle]').addEventListener('click', ()=>{
+        li.querySelector('[data-note-view]').style.display = 'none';
+        li.querySelector('[data-note-edit-body]').style.display = 'block';
+      });
+      li.querySelector('[data-note-edit-cancel]').addEventListener('click', ()=>{
+        li.querySelector('[data-note-view]').style.display = '';
+        li.querySelector('[data-note-edit-body]').style.display = 'none';
+      });
+      li.querySelector('[data-note-edit-save]').addEventListener('click', ()=>{
+        const newText = li.querySelector('[data-note-edit-text]').value.trim();
+        if(!newText){ showToast('Note text is required'); return; }
+        n.type = li.querySelector('[data-note-edit-type]').value;
+        n.date = li.querySelector('[data-note-edit-date]').value || n.date;
+        n.text = newText;
+        logAudit(`${state.actor||'Someone'} edited a note for ${c.name}`, c.id, c.name, 'timeline');
+        persistCustomer(c); render(); showToast('Note updated');
+      });
+      li.querySelector('[data-note-delete]').addEventListener('click', ()=>{
+        if(!confirm('Delete this note? This can\'t be undone.')) return;
+        c.notes = (c.notes||[]).filter(x=>x.id!==n.id);
+        logAudit(`${state.actor||'Someone'} deleted a note for ${c.name}`, c.id, c.name, 'timeline');
+    deleteNoteRemote(n.id);
+        render(); showToast('Note deleted');
+      });
+      ul.appendChild(li);
+    });
+    listPanel.appendChild(ul);
   }
   wrap.appendChild(listPanel);
   return wrap;
+}
+
+function renderTicketCard(t, c, opts){
+  opts = opts || {};
+  const card = document.createElement('div');
+  card.className='ticket-card';
+  card.innerHTML = `
+    <div class="ticket-top">
+      <div>
+        <div class="ticket-title"${opts.showCustomerLink?' data-open style="cursor:pointer;"':''}>${escapeHtml(t.title)}${opts.showCustomerLink? ` <span style="color:var(--ink-soft);font-weight:500;">— ${escapeHtml(c.name)}</span>` : ''}</div>
+        <div class="ticket-meta" data-view-meta>${escapeHtml(t.module)} · opened ${fmtDate(t.createdDate)}${t.resolvedDate? ' · resolved '+fmtDate(t.resolvedDate):''} · assigned to ${escapeHtml(t.assignedTo||'Unassigned')}</div>
+        ${t.notes? `<div class="ticket-meta" data-view-notes style="margin-top:4px;color:var(--ink);">${escapeHtml(t.notes)}</div>`:''}
+      </div>
+      <div class="ticket-pills"><span class="${pillClass(t.priority)}">${t.priority}</span><span class="${pillClass(t.status)}">${t.status}</span></div>
+    </div>
+    <div class="add-form-row" style="margin-top:10px;margin-bottom:0;">
+      <select data-status>${TICKET_STATUSES.map(s=>`<option ${t.status===s?'selected':''}>${s}</option>`).join('')}</select>
+      <select data-assignee>${['Unassigned',...state.owners].map(a=>`<option ${(t.assignedTo||'Unassigned')===a?'selected':''}>${a}</option>`).join('')}</select>
+      <button class="btn btn-ghost btn-sm" data-edit-toggle>Edit</button>
+      <button class="btn btn-ghost btn-sm" data-delete style="color:var(--red);">Delete</button>
+    </div>
+    <div data-edit-body style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft);">
+      <div class="add-form-row">
+        <input data-edit-title value="${escapeAttr(t.title)}" placeholder="Subject" style="flex:2;min-width:200px;">
+        <select data-edit-module>${MODULES.map(m=>`<option ${t.module===m?'selected':''}>${m}</option>`).join('')}</select>
+        <select data-edit-priority>${PRIORITIES.map(p=>`<option ${t.priority===p?'selected':''}>${p}</option>`).join('')}</select>
+      </div>
+      <textarea data-edit-notes placeholder="Description / notes">${escapeHtml(t.notes||'')}</textarea>
+      <div class="add-form-row" style="margin-top:8px;margin-bottom:0;">
+        <button class="btn btn-primary btn-sm" data-edit-save>Save changes</button>
+        <button class="btn btn-sm" data-edit-cancel>Cancel</button>
+      </div>
+    </div>
+  `;
+  if(opts.showCustomerLink){
+    card.querySelector('[data-open]').addEventListener('click', ()=>goToCustomer(c.id,'tickets'));
+  }
+  card.querySelector('[data-status]').addEventListener('change', e=>{
+    t.status = e.target.value;
+    t.resolvedDate = (t.status==='Resolved'||t.status==='Closed') ? (t.resolvedDate||todayISO()) : null;
+    logAudit(`${state.actor||'Someone'} marked ticket "${t.title}" as ${t.status} for ${c.name}`, c.id, c.name, 'tickets');
+    persistCustomer(c); render();
+  });
+  card.querySelector('[data-assignee]').addEventListener('change', e=>{
+    t.assignedTo = e.target.value==='Unassigned' ? '' : e.target.value;
+    logAudit(`${state.actor||'Someone'} assigned ticket "${t.title}" to ${e.target.value} for ${c.name}`, c.id, c.name, 'tickets');
+    persistCustomer(c); render();
+  });
+  card.querySelector('[data-edit-toggle]').addEventListener('click', ()=>{
+    const body = card.querySelector('[data-edit-body]');
+    body.style.display = body.style.display==='none' ? 'block' : 'none';
+  });
+  card.querySelector('[data-edit-cancel]').addEventListener('click', ()=>{
+    card.querySelector('[data-edit-body]').style.display = 'none';
+  });
+  card.querySelector('[data-edit-save]').addEventListener('click', ()=>{
+    const newTitle = card.querySelector('[data-edit-title]').value.trim();
+    if(!newTitle){ showToast('Subject is required'); return; }
+    t.title = newTitle;
+    t.module = card.querySelector('[data-edit-module]').value;
+    t.priority = card.querySelector('[data-edit-priority]').value;
+    t.notes = card.querySelector('[data-edit-notes]').value.trim();
+    logAudit(`${state.actor||'Someone'} edited ticket "${newTitle}" for ${c.name}`, c.id, c.name, 'tickets');
+    persistCustomer(c); render(); showToast('Ticket updated');
+  });
+  card.querySelector('[data-delete]').addEventListener('click', ()=>{
+    if(!confirm(`Delete ticket "${t.title}"? This can't be undone.`)) return;
+    c.tickets = (c.tickets||[]).filter(x=>x.id!==t.id);
+    logAudit(`${state.actor||'Someone'} deleted ticket "${t.title}" for ${c.name}`, c.id, c.name, 'tickets');
+    deleteTicketRemote(t.id);
+    render(); showToast('Ticket deleted');
+  });
+  return card;
 }
 
 function renderTicketsTab(c){
@@ -1375,9 +2013,10 @@ function renderTicketsTab(c){
   form.className='add-form';
   form.innerHTML = `
     <div class="add-form-row">
-      <input id="tk2-title" placeholder="Issue title" style="flex:2;min-width:200px;">
+      <input id="tk2-title" placeholder="Subject" style="flex:2;min-width:200px;">
       <select id="tk2-module">${MODULES.map(m=>`<option>${m}</option>`).join('')}</select>
       <select id="tk2-priority">${PRIORITIES.map(p=>`<option ${p==='Medium'?'selected':''}>${p}</option>`).join('')}</select>
+      <select id="tk2-assignee">${['Unassigned',...state.owners].map(a=>`<option ${a===state.actor?'selected':''}>${a}</option>`).join('')}</select>
     </div>
     <textarea id="tk2-notes" placeholder="Description / notes"></textarea>
     <div class="add-form-row" style="margin-top:8px;margin-bottom:0;">
@@ -1388,10 +2027,11 @@ function renderTicketsTab(c){
   form.querySelector('#tk2-add').addEventListener('click', ()=>{
     const titleInput = form.querySelector('#tk2-title');
     const title = titleInput.value.trim();
-    if(!title){ titleInput.style.borderColor='var(--red)'; titleInput.focus(); showToast('Issue title is required'); return; }
+    if(!title){ titleInput.style.borderColor='var(--red)'; titleInput.focus(); showToast('Subject is required'); return; }
     titleInput.style.borderColor='';
+    const assignee = form.querySelector('#tk2-assignee').value;
     c.tickets = c.tickets || [];
-    c.tickets.unshift({ id:uid(), title, module:form.querySelector('#tk2-module').value, priority:form.querySelector('#tk2-priority').value, status:'Open', notes:form.querySelector('#tk2-notes').value.trim(), createdDate: todayISO(), resolvedDate:null });
+    c.tickets.unshift({ id:uid(), title, module:form.querySelector('#tk2-module').value, priority:form.querySelector('#tk2-priority').value, status:'Open', assignedTo: assignee==='Unassigned'?'':assignee, notes:form.querySelector('#tk2-notes').value.trim(), createdDate: todayISO(), resolvedDate:null });
     logAudit(`${state.actor||'Someone'} logged ticket "${title}" for ${c.name}`, c.id, c.name, 'tickets');
     persistCustomer(c); render(); showToast('Ticket logged');
   });
@@ -1402,33 +2042,119 @@ function renderTicketsTab(c){
     listPanel.className='panel';
     listPanel.innerHTML = `<div class="empty"><div class="serif">No support tickets</div>Log one above when an issue comes in.</div>`;
   } else {
-    tickets.forEach(t=>{
-      const card = document.createElement('div');
-      card.className='ticket-card';
-      card.innerHTML = `
-        <div class="ticket-top">
-          <div>
-            <div class="ticket-title">${escapeHtml(t.title)}</div>
-            <div class="ticket-meta">${escapeHtml(t.module)} · opened ${fmtDate(t.createdDate)}${t.resolvedDate? ' · resolved '+fmtDate(t.resolvedDate):''}</div>
-            ${t.notes? `<div class="ticket-meta" style="margin-top:4px;color:var(--ink);">${escapeHtml(t.notes)}</div>`:''}
-          </div>
-          <div class="ticket-pills"><span class="${pillClass(t.priority)}">${t.priority}</span><span class="${pillClass(t.status)}">${t.status}</span></div>
-        </div>
-        <div class="add-form-row" style="margin-top:10px;margin-bottom:0;">
-          <select data-status>${TICKET_STATUSES.map(s=>`<option ${t.status===s?'selected':''}>${s}</option>`).join('')}</select>
-        </div>
-      `;
-      card.querySelector('[data-status]').addEventListener('change', e=>{
-        t.status = e.target.value;
-        t.resolvedDate = (t.status==='Resolved'||t.status==='Closed') ? (t.resolvedDate||todayISO()) : null;
-        logAudit(`${state.actor||'Someone'} marked ticket "${t.title}" as ${t.status} for ${c.name}`, c.id, c.name, 'tickets');
-        persistCustomer(c); render();
-      });
-      listPanel.appendChild(card);
-    });
+    tickets.forEach(t=> listPanel.appendChild(renderTicketCard(t, c)));
   }
   wrap.appendChild(listPanel);
   return wrap;
+}
+
+function renderTicketsView(){
+  const wrap = document.createElement('div');
+  const all = [];
+  state.customers.forEach(c=> (c.tickets||[]).forEach(t=> all.push({...t, customerId:c.id, customerName:c.name})));
+  all.sort((a,b)=> (b.createdDate||'').localeCompare(a.createdDate||''));
+  const hasUnassignedTicket = all.some(t=>!t.assignedTo);
+  const assignees = Array.from(new Set([...(hasUnassignedTicket?['Unassigned']:[]), ...state.owners])).filter(a=>a);
+
+  wrap.innerHTML = `<div class="topbar">
+    <div><h1 class="page-title">Tickets</h1><div class="page-sub">Every support ticket across all customers, in one queue.</div></div>
+    <button class="btn btn-primary" id="tix-add">+ Add ticket</button>
+  </div>
+  <div class="panel" style="margin-bottom:14px;">
+    <div class="add-form-row">
+      <input id="tix-search" placeholder="Search subject or company…" value="${escapeAttr(state.ticketSearch)}" style="flex:2;min-width:200px;">
+      <select id="tix-status">${['All',...TICKET_STATUSES].map(s=>`<option ${state.ticketStatusFilter===s?'selected':''}>${s}</option>`).join('')}</select>
+      <select id="tix-priority">${['All',...PRIORITIES].map(p=>`<option ${state.ticketPriorityFilter===p?'selected':''}>${p}</option>`).join('')}</select>
+      <select id="tix-assignee">${['All',...assignees].map(a=>`<option ${state.ticketAssigneeFilter===a?'selected':''}>${a}</option>`).join('')}</select>
+    </div>
+  </div>
+  <div id="tix-list"></div>`;
+
+  wrap.querySelector('#tix-add').addEventListener('click', ()=>{ state.showAddTicket=true; render(); });
+  wrap.querySelector('#tix-search').addEventListener('input', e=>{ state.ticketSearch=e.target.value; render(); });
+  wrap.querySelector('#tix-status').addEventListener('change', e=>{ state.ticketStatusFilter=e.target.value; render(); });
+  wrap.querySelector('#tix-priority').addEventListener('change', e=>{ state.ticketPriorityFilter=e.target.value; render(); });
+  wrap.querySelector('#tix-assignee').addEventListener('change', e=>{ state.ticketAssigneeFilter=e.target.value; render(); });
+
+  let filtered = all;
+  const q = state.ticketSearch.trim().toLowerCase();
+  if(q) filtered = filtered.filter(t=> (t.title||'').toLowerCase().includes(q) || (t.customerName||'').toLowerCase().includes(q));
+  if(state.ticketStatusFilter!=='All') filtered = filtered.filter(t=>t.status===state.ticketStatusFilter);
+  if(state.ticketPriorityFilter!=='All') filtered = filtered.filter(t=>t.priority===state.ticketPriorityFilter);
+  if(state.ticketAssigneeFilter!=='All') filtered = filtered.filter(t=>(t.assignedTo||'Unassigned')===state.ticketAssigneeFilter);
+
+  const listWrap = wrap.querySelector('#tix-list');
+  if(filtered.length===0){
+    listWrap.innerHTML = `<div class="panel empty"><div class="serif">No tickets found</div>${all.length? 'Try clearing filters.' : 'Add one above when an issue comes in.'}</div>`;
+  } else {
+    filtered.forEach(t=>{
+      const cust = getCustomer(t.customerId); if(!cust) return;
+      const real = (cust.tickets||[]).find(x=>x.id===t.id); if(!real) return;
+      listWrap.appendChild(renderTicketCard(real, cust, {showCustomerLink:true}));
+    });
+  }
+
+  if(state.showAddTicket) wrap.appendChild(renderAddTicketModal());
+  return wrap;
+}
+
+function renderAddTicketModal(){
+  const back = document.createElement('div');
+  back.className='modal-backdrop';
+  back.addEventListener('click', e=>{ if(e.target===back){ state.showAddTicket=false; render(); } });
+  const modal = document.createElement('div');
+  modal.className='modal';
+  const sortedCustomers = [...state.customers].sort((a,b)=>a.name.localeCompare(b.name));
+  if(sortedCustomers.length===0){
+    modal.innerHTML = `<h3>Add ticket</h3><div class="panel-sub">Add a customer first before logging a ticket.</div>
+      <div class="modal-actions"><button class="btn" id="at-cancel">Close</button></div>`;
+    back.appendChild(modal);
+    modal.querySelector('#at-cancel').addEventListener('click', ()=>{ state.showAddTicket=false; render(); });
+    return back;
+  }
+  modal.innerHTML = `
+    <h3>Add ticket</h3>
+    <div class="field-grid">
+      <div class="field"><label>Company / customer *</label><select id="at-customer">${sortedCustomers.map(c=>`<option value="${c.id}" ${c.id===state.activeId?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Subject *</label><input id="at-subject" type="text"></div>
+      <div class="field"><label>Category</label><select id="at-module">${MODULES.map(m=>`<option>${m}</option>`).join('')}</select></div>
+      <div class="field"><label>Priority</label><select id="at-priority">${PRIORITIES.map(p=>`<option ${p==='Medium'?'selected':''}>${p}</option>`).join('')}</select></div>
+      <div class="field"><label>Status</label><select id="at-status">${TICKET_STATUSES.map(s=>`<option ${s==='Open'?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="field"><label>Assigned to</label><select id="at-assignee">${['Unassigned',...state.owners].map(a=>`<option ${a===state.actor?'selected':''}>${a}</option>`).join('')}</select></div>
+    </div>
+    <div class="field" style="margin-top:10px;"><label>Description</label><textarea id="at-desc"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="at-cancel">Cancel</button>
+      <button class="btn btn-primary" id="at-save">Add ticket</button>
+    </div>
+  `;
+  back.appendChild(modal);
+  modal.querySelector('#at-cancel').addEventListener('click', ()=>{ state.showAddTicket=false; render(); });
+  modal.querySelector('#at-save').addEventListener('click', ()=>{
+    const subjectInput = modal.querySelector('#at-subject');
+    const subject = subjectInput.value.trim();
+    if(!subject){ subjectInput.style.borderColor='var(--red)'; subjectInput.focus(); showToast('Subject is required'); return; }
+    const custId = modal.querySelector('#at-customer').value;
+    const cust = getCustomer(custId);
+    if(!cust){ showToast('Select a customer'); return; }
+    const assignee = modal.querySelector('#at-assignee').value;
+    const status = modal.querySelector('#at-status').value;
+    cust.tickets = cust.tickets || [];
+    cust.tickets.unshift({
+      id: uid(), title: subject, module: modal.querySelector('#at-module').value,
+      priority: modal.querySelector('#at-priority').value, status,
+      assignedTo: assignee==='Unassigned' ? '' : assignee,
+      notes: modal.querySelector('#at-desc').value.trim(),
+      createdDate: todayISO(), resolvedDate: (status==='Resolved'||status==='Closed') ? todayISO() : null,
+    });
+    logAudit(`${state.actor||'Someone'} logged ticket "${subject}" for ${cust.name}`, cust.id, cust.name, 'tickets');
+    persistCustomer(cust);
+    state.showAddTicket = false;
+    render();
+    showToast('Ticket added');
+  });
+  setTimeout(()=>modal.querySelector('#at-subject').focus(),0);
+  return back;
 }
 
 function renderTeam(){
@@ -1542,6 +2268,7 @@ function renderAddCustomerModal(){
       <div class="field"><label>Owner</label><select id="ac-owner">${['Unassigned',...state.owners].map(o=>`<option ${o===state.actor?'selected':''}>${o}</option>`).join('')}</select></div>
       <div class="field"><label>Account manager</label><input id="ac-am" type="text"></div>
       <div class="field"><label>Billing cycle</label><select id="ac-cycle">${Object.keys(BILLING_CYCLES).map(o=>`<option>${o}</option>`).join('')}</select></div>
+      <div class="field"><label>Number of users</label><input id="ac-users" type="number" value="0"></div>
       <div class="field"><label>Deal value per cycle ($)</label><input id="ac-deal" type="number"></div>
       <div class="field"><label>Customer start date</label><input id="ac-start" type="date" value="${todayISO()}"></div>
       <div class="field"><label>Renewal date</label><input id="ac-renewal" type="date"></div>
@@ -1567,12 +2294,20 @@ function renderAddCustomerModal(){
       accountManager: accountManager,
       billingCycle: modal.querySelector('#ac-cycle').value,
       dealValue: Number(modal.querySelector('#ac-deal').value)||0,
+      numUsers: Number(modal.querySelector('#ac-users').value)||0,
       mrr: 0,
       renewalDate: modal.querySelector('#ac-renewal').value,
-      lastContact:'', notes:[], tickets:[], tasks:[], featureUsage:[], mrrEvents:[],
+      lastContact:'', notes:[], tickets:[], tasks:[], featureUsage:[], mrrEvents:[], subscriptionCycles:[], payments:[], addons:[],
       createdAt: modal.querySelector('#ac-start').value || todayISO(),
     };
     recalcMrr(nc);
+    if(nc.dealValue>0){
+      nc.subscriptionCycles.push({
+        id: uid(), numUsers: nc.numUsers, pricePerUser: nc.numUsers>0 ? Math.round((nc.dealValue/nc.numUsers)*100)/100 : 0,
+        billingCycle: nc.billingCycle, subscriptionAmount: nc.dealValue, startDate: nc.createdAt, endDate:'',
+        renewalDate: nc.renewalDate, status:'Active', note:'Initial cycle',
+      });
+    }
     state.customers.unshift(nc);
     persistCustomer(nc);
     logAudit(`${state.actor||'Someone'} created customer ${name}`, nc.id, nc.name, 'overview');
